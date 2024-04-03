@@ -1,0 +1,13 @@
+name: nixos-safe-gc
+version: 0.0.1
+
+authors:
+  - Rob David<rob.j.david@googlemail.com>
+
+targets:
+  nixos-safe-gc:
+    main: main.cr
+
+crystal: ">= 0.36, < 2.0"
+
+license: MIT
