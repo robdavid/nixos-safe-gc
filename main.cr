@@ -24,7 +24,7 @@ struct Entry
 end
 
 class Entries < Array(Entry)
-  def min_duration(min : Time::Span, kernel : String, generations : Int32, now = Time.utc) : Time::Span?
+  def max_duration(min : Time::Span, kernel : String, generations : Int32, now = Time.utc) : Time::Span?
     kernel_pos = self.index { |e| e.kernel_version == kernel }
     puts "WARNING: Target kernel #{kernel} not in any generation" if kernel_pos.nil?
     pos = kernel_pos.nil? || kernel_pos+1 < generations ? generations-1 : kernel_pos
@@ -70,7 +70,7 @@ rescue e : ArgumentError
 end
 
 
-keep = entries.min_duration(min_time,kernel,generations)
+keep = entries.max_duration(min_time,kernel,generations)
 if keep
   keep_days = keep.days
   keep_days += 1 if keep_days.days < keep
