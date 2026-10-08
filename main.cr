@@ -1,12 +1,14 @@
 require "json"
 require "time"
 require "option_parser"
+require "process"
 
 struct Entry
   include JSON::Serializable
 
   property generation : Int32
-  
+
+  @[JSON::Field(key: "date", converter: Entry::TimeConverter)]
   property date : Time
 
   @[JSON::Field(key: "nixosVersion")]
@@ -21,17 +23,26 @@ struct Entry
   property specialisations : Array(String)
 
   property current : Bool
+
+  class TimeConverter
+
+    def self.from_json(value : JSON::PullParser) : Time
+      Time.parse_local(value.read_string,"%Y-%m-%d %H:%M:%S")
+    end
+
+  end
+
 end
 
 class Entries < Array(Entry)
-  def max_duration(min : Time::Span, kernel : String, generations : Int32, now = Time.utc) : Time::Span?
-    kernel_pos = self.index { |e| e.kernel_version == kernel }
+  def max_duration(min : Time::Span, kernel : String?, generations : Int32, now = Time.utc) : Time::Span?
+    kernel_pos = kernel.nil? ? 0 : self.index { |e| e.kernel_version == kernel }
     puts "WARNING: Target kernel #{kernel} not in any generation" if kernel_pos.nil?
-    pos = kernel_pos.nil? || kernel_pos+1 < generations ? generations-1 : kernel_pos
+    pos = kernel_pos.nil? || kernel_pos + 1 < generations ? generations - 1 : kernel_pos
     if pos < self.size
       entry = self[pos]
       keep_time = now - entry.date
-      puts "Generation #{entry.generation} (##{pos+1}) running #{entry.kernel_version == kernel ? "(target) " : ""}kernel #{entry.kernel_version} from #{entry.date} is age #{keep_time}#{keep_time<min ? " < #{min} min" : ""}"
+      puts "Generation #{entry.generation} (##{pos + 1}) running #{entry.kernel_version == kernel ? "(target) " : ""}kernel #{entry.kernel_version} from #{entry.date} is age #{keep_time}#{keep_time < min ? " < #{min} min" : ""}"
       keep_time < min ? min : keep_time
     else
       nil
@@ -39,20 +50,20 @@ class Entries < Array(Entry)
   end
 end
 
-kernel = ""
+kernel = nil
 min_time = 1.nanosecond
 generations = 1
 dry_run = false
 begin
   OptionParser.parse do |parser|
     parser.banner = "Usage: nixos-safe-gc [options]"
-    parser.on("-k VERSION","--keep-kernel VERSION", 
-      "Keep generation with the given kernel version (defaults to current kernel)") {|k| kernel = k }
-    parser.on("-d DAYS","--days DAYS",
+    parser.on("-k [VERSION]", "--keep-kernel [VERSION]",
+      "Keep generation with the given kernel version (defaults to current kernel)") { |k| kernel = (k == "" ? `uname -r`.strip : k) }
+    parser.on("-d DAYS", "--days DAYS",
       "Keep at least the given number of days worth of generations") { |n| min_time = n.to_i.days }
-    parser.on("-g GENERATIONS","--generations GENERATIONS",
-      "Keep at least the given number of generations") {|n| generations = n.to_i }
-    parser.on("-R","--dry-run","Don't perform a GC, but show what would be done") { dry_run = true }
+    parser.on("-g GENERATIONS", "--generations GENERATIONS",
+      "Keep at least the given number of generations") { |n| generations = n.to_i }
+    parser.on("-R", "--dry-run", "Don't perform a GC, but show what would be done") { dry_run = true }
     parser.on("-h", "--help", "Show this help") do
       puts parser
       exit(1)
@@ -69,8 +80,7 @@ rescue e : ArgumentError
   exit(1)
 end
 
-
-keep = entries.max_duration(min_time,kernel,generations)
+keep = entries.max_duration(min_time, kernel, generations)
 if keep
   keep_days = keep.days
   keep_days += 1 if keep_days.days < keep
@@ -79,7 +89,8 @@ if keep
     puts "Dry-run mode; skipping command: #{command}"
   else
     puts "+ #{command}"
-    puts `#{command}`
+    Process.run(command, 
+      shell: true, input: Process::Redirect::Close, output: Process::Redirect::Inherit, error: Process::Redirect::Inherit)
   end
 else
   puts "No entries to purge"
