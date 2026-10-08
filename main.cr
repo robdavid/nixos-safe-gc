@@ -89,8 +89,9 @@ if keep
     puts "Dry-run mode; skipping command: #{command}"
   else
     puts "+ #{command}"
-    Process.run(command, 
+    status = Process.run(command, 
       shell: true, input: Process::Redirect::Close, output: Process::Redirect::Inherit, error: Process::Redirect::Inherit)
+    exit(status.exit_code) if status.abnormal_exit?
   end
 else
   puts "No entries to purge"
