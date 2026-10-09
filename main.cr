@@ -3,6 +3,12 @@ require "time"
 require "option_parser"
 require "process"
 
+class CommandError < Exception
+  def initialize(message = "Command error")
+    super(message)
+  end
+end
+
 struct Entry
   include JSON::Serializable
 
@@ -70,29 +76,34 @@ begin
     end
   end
 
-  kernel = `uname -r`.strip if kernel == ""
   entries = Entries.from_json(`nixos-rebuild list-generations --json`)
+  keep = entries.max_duration(min_time, kernel, generations)
+  if keep
+    keep_days = keep.days
+    keep_days += 1 if keep_days.days < keep
+    command = "nix-collect-garbage --delete-older-than #{keep_days}d"
+    if dry_run
+      puts "Dry-run mode; skipping command: #{command}"
+    else
+      puts "+ #{command}"
+      status = Process.run(command, 
+        shell: true, input: Process::Redirect::Close, output: Process::Redirect::Inherit, error: Process::Redirect::Inherit)
+      raise CommandError.new() if status.exit_code != 0 
+    end
+  else
+    puts "No entries to purge"
+  end
+
 rescue e : JSON::ParseException
   STDERR.print("nixos-safe-gc: cannot parse result from nixos-rebuild: #{e}")
   exit(1)
 rescue e : ArgumentError
   STDERR.print("nixos-safe-gc: #{e}")
   exit(1)
+rescue e : CommandError
+  exit(1) 
+rescue e : Exception
+  STDERR.print("nixos-safe-gc: #{e}")
+  exit(2)
 end
 
-keep = entries.max_duration(min_time, kernel, generations)
-if keep
-  keep_days = keep.days
-  keep_days += 1 if keep_days.days < keep
-  command = "nix-collect-garbage --delete-older-than #{keep_days}d"
-  if dry_run
-    puts "Dry-run mode; skipping command: #{command}"
-  else
-    puts "+ #{command}"
-    status = Process.run(command, 
-      shell: true, input: Process::Redirect::Close, output: Process::Redirect::Inherit, error: Process::Redirect::Inherit)
-    exit(status.exit_code) if status.abnormal_exit?
-  end
-else
-  puts "No entries to purge"
-end
