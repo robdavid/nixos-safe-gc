@@ -2,6 +2,7 @@ require "json"
 require "time"
 require "option_parser"
 require "process"
+require "system/user"
 
 class CommandError < Exception
   def initialize(message = "Command error")
@@ -56,42 +57,77 @@ class Entries < Array(Entry)
   end
 end
 
-kernel = nil
-min_time = 1.nanosecond
-generations = 1
-dry_run = false
+class SafeGC
+  property kernel : String? = nil
+  property min_time : Time::Span = 1.nanosecond
+  property generations : Int32 = 1
+  property dry_run : Bool = false
+  getter current_user : System::User { System::User.find_by(id: `id -u`) }
+
+  def run
+    entries = Entries.from_json(`nixos-rebuild list-generations --json`)
+    keep = entries.max_duration(@min_time, @kernel, @generations)
+    if keep
+      keep_days = keep.days
+      keep_days += 1 if keep_days.days < keep
+      command = "nix-collect-garbage --delete-older-than #{keep_days}d"
+      if @dry_run
+        puts "Dry-run mode; skipping command: #{command}"
+      else
+        puts "+ #{command}"
+        status = Process.run(command, 
+          shell: true, input: Process::Redirect::Close, output: Process::Redirect::Inherit, error: Process::Redirect::Inherit)
+        raise CommandError.new() if status.exit_code != 0 
+      end
+    else
+      puts "No entries to purge"
+    end
+  end
+
+  def run_as(user : String)
+    if user == current_user.username
+      run
+    else
+      args : Array(String) =  ["-u",user,Process.executable_path || PROGRAM_NAME]
+      args += ["--generations",@generations.to_s] if @generations > 1
+      args += ["--days",@min_time.days.to_s ] if @min_time.days > 1
+      args << "--dry-run" if @dry_run
+      args << "--keep-kernel" unless @kernel.nil?
+      args << @kernel.to_s if !@kernel.nil? && @kernel != ""
+      puts "+ sudo #{args.join(" ")}"
+      status = Process.run("sudo",args,
+        input: Process::Redirect::Inherit, output: Process::Redirect::Inherit, error: Process::Redirect::Inherit)
+      raise CommandError.new() if status.exit_code != 0 
+    end
+  end
+end
+
+gc = SafeGC.new
+
+users = [] of String
 begin
   OptionParser.parse do |parser|
     parser.banner = "Usage: nixos-safe-gc [options]"
     parser.on("-k [VERSION]", "--keep-kernel [VERSION]",
-      "Keep generation with the given kernel version (defaults to current kernel)") { |k| kernel = (k == "" ? `uname -r`.strip : k) }
+      "Keep generation with the given kernel version (defaults to current kernel)") do |k| 
+        gc.kernel = (k == "" ? `uname -r`.strip : k)
+      end
     parser.on("-d DAYS", "--days DAYS",
-      "Keep at least the given number of days worth of generations") { |n| min_time = n.to_i.days }
+      "Keep at least the given number of days worth of generations") { |n| gc.min_time = n.to_i.days }
     parser.on("-g GENERATIONS", "--generations GENERATIONS",
-      "Keep at least the given number of generations") { |n| generations = n.to_i }
-    parser.on("-R", "--dry-run", "Don't perform a GC, but show what would be done") { dry_run = true }
+      "Keep at least the given number of generations") { |n| gc.generations = n.to_i }
+    parser.on("-R", "--dry-run", "Don't perform a GC, but show what would be done") { gc.dry_run = true }
+    parser.on("-u USER", "--user USER", "One or more users to run the garbage collection for") { |u| users << u }
     parser.on("-h", "--help", "Show this help") do
       puts parser
       exit(1)
     end
   end
 
-  entries = Entries.from_json(`nixos-rebuild list-generations --json`)
-  keep = entries.max_duration(min_time, kernel, generations)
-  if keep
-    keep_days = keep.days
-    keep_days += 1 if keep_days.days < keep
-    command = "nix-collect-garbage --delete-older-than #{keep_days}d"
-    if dry_run
-      puts "Dry-run mode; skipping command: #{command}"
-    else
-      puts "+ #{command}"
-      status = Process.run(command, 
-        shell: true, input: Process::Redirect::Close, output: Process::Redirect::Inherit, error: Process::Redirect::Inherit)
-      raise CommandError.new() if status.exit_code != 0 
-    end
+  if users.empty?
+    gc.run
   else
-    puts "No entries to purge"
+    users.each {|user| gc.run_as(user) }
   end
 
 rescue e : JSON::ParseException
