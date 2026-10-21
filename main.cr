@@ -42,11 +42,15 @@ struct Entry
 end
 
 class Entries < Array(Entry)
-  def max_duration(min : Time::Span, kernel : String?, generations : Int32, now = Time.utc) : Time::Span?
+  def max_duration(min : Time::Span, kernel : String?, generations : Int32, now = Time.local) : Time::Span?
     kernel_pos = kernel.nil? ? 0 : self.index { |e| e.kernel_version == kernel }
     puts "WARNING: Target kernel #{kernel} not in any generation" if kernel_pos.nil?
+    # The oldest generation that has to be kept is either the one running the
+    # target kernel or the generations-th most recent one, whichever is older.
     pos = kernel_pos.nil? || kernel_pos + 1 < generations ? generations - 1 : kernel_pos
-    if pos < self.size
+    # If there are fewer generations than requested, all of them are kept.
+    pos = self.size - 1 if pos >= self.size
+    if pos >= 0
       entry = self[pos]
       keep_time = now - entry.date
       puts "Generation #{entry.generation} (##{pos + 1}) running #{entry.kernel_version == kernel ? "(target) " : ""}kernel #{entry.kernel_version} from #{entry.date} is age #{keep_time}#{keep_time < min ? " < #{min} min" : ""}"
@@ -70,6 +74,8 @@ class SafeGC
     if keep
       keep_days = keep.days
       keep_days += 1 if keep_days.days < keep
+      # nix-collect-garbage only accepts periods of at least one day.
+      keep_days = 1 if keep_days < 1
       command = "nix-collect-garbage --delete-older-than #{keep_days}d"
       if @dry_run
         puts "Dry-run mode; skipping command: #{command}"
@@ -89,8 +95,8 @@ class SafeGC
       run
     else
       args : Array(String) =  ["-u",user,Process.executable_path || PROGRAM_NAME]
-      args += ["--generations",@generations.to_s] if @generations > 1
-      args += ["--days",@min_time.days.to_s ] if @min_time.days > 1
+      args += ["--generations",@generations.to_s]
+      args += ["--days",@min_time.days.to_s]
       args << "--dry-run" if @dry_run
       args << "--keep-kernel" unless @kernel.nil?
       args << @kernel.to_s if !@kernel.nil? && @kernel != ""

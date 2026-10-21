@@ -19,24 +19,18 @@
           pkgs = nixpkgs.legacyPackages.${system};
         in
         {
-          default = pkgs.crystal.buildCrystalPackage {
-            pname = "nixos-safe-gc";
-            inherit version;
+          default = import ./package.nix {
+            inherit pkgs version;
             src = self;
-            shardsFile = ./shards.nix;
-            format = "shards";
-            doCheck = false;
-            doInstallCheck = false;
-            buildInputs = with pkgs; [
-              openssl
-              pkg-config
-              pcre
-              ameba
-              gmp
-            ];
           };
         }
       );
+
+      nixosModules = {
+        nixos-safe-gc = ./module.nix;
+        default = ./module.nix;
+      };
+
       devShells = forAllSystems (
         system:
         let
