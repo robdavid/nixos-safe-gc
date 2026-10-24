@@ -42,19 +42,20 @@ struct Entry
 end
 
 class Entries < Array(Entry)
-  def max_duration(min : Time::Span, kernel : String?, generations : Int32, now = Time.local) : Time::Span?
+  def max_duration(min : Time::Span?, kernel : String?, generations : Int32?, now = Time.local) : Time::Span?
     kernel_pos = kernel.nil? ? 0 : self.index { |e| e.kernel_version == kernel }
     puts "WARNING: Target kernel #{kernel} not in any generation" if kernel_pos.nil?
+    gen_pos = generations.nil? ? 0 : generations - 1
     # The oldest generation that has to be kept is either the one running the
     # target kernel or the generations-th most recent one, whichever is older.
-    pos = kernel_pos.nil? || kernel_pos + 1 < generations ? generations - 1 : kernel_pos
+    pos = kernel_pos.nil? || gen_pos > kernel_pos ? gen_pos : kernel_pos
     # If there are fewer generations than requested, all of them are kept.
     pos = self.size - 1 if pos >= self.size
     if pos >= 0
       entry = self[pos]
       keep_time = now - entry.date
-      puts "Generation #{entry.generation} (##{pos + 1}) running #{entry.kernel_version == kernel ? "(target) " : ""}kernel #{entry.kernel_version} from #{entry.date} is age #{keep_time}#{keep_time < min ? " < #{min} min" : ""}"
-      keep_time < min ? min : keep_time
+      puts "Generation #{entry.generation} (##{pos + 1}) running #{entry.kernel_version == kernel ? "(target) " : ""}kernel #{entry.kernel_version} from #{entry.date} is age #{keep_time}#{min && keep_time < min ? " < #{min} min" : ""}"
+      min && min > keep_time ? min : keep_time
     else
       nil
     end
@@ -63,8 +64,8 @@ end
 
 class SafeGC
   property kernel : String? = nil
-  property min_time : Time::Span = 1.nanosecond
-  property generations : Int32 = 1
+  property min_time : Time::Span? = nil
+  property generations : Int32? = nil
   property dry_run : Bool = false
   getter current_user : System::User { System::User.find_by(id: `id -u`) }
 
@@ -95,8 +96,8 @@ class SafeGC
       run
     else
       args : Array(String) =  ["-u",user,Process.executable_path || PROGRAM_NAME]
-      args += ["--generations",@generations.to_s]
-      args += ["--days",@min_time.days.to_s]
+      @generations.try { |generations| args += ["--generations",generations.to_s] }
+      @min_time.try { |min_time| args += ["--days",min_time.days.to_s] }
       args << "--dry-run" if @dry_run
       args << "--keep-kernel" unless @kernel.nil?
       args << @kernel.to_s if !@kernel.nil? && @kernel != ""
