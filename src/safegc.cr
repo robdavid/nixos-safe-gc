@@ -52,8 +52,6 @@ class Entries < Array(Entry)
       keep_time = now - entry.date
       puts "Generation #{entry.generation} (##{pos + 1}) running #{entry.kernel_version == kernel ? "(target) " : ""}kernel #{entry.kernel_version} from #{entry.date} is age #{keep_time}#{min && keep_time < min ? " < #{min} min" : ""}"
       min && min > keep_time ? min : keep_time
-    else
-      nil
     end
   end
 end
@@ -70,6 +68,20 @@ class ProfileHistoryItem
       date = Time.parse_local(matches["date"],"%Y-%m-%d")
       ProfileHistoryItem.new(matches["version"].to_i,date)
     end
+  end
+end
+
+class ProfileHistory < Array(ProfileHistoryItem)
+  def self.parse(history : String) : ProfileHistory
+    result = ProfileHistory.new()
+    history.each_line do |line|
+      ProfileHistoryItem.parse(line).try {|item| result << item }
+    end
+    result.sort! { |lhs,rhs| rhs.version - lhs.version }
+    result
+  end
+  def self.load() : ProfileHistory
+    self.parse(`nix profile history`)
   end
 end
 
