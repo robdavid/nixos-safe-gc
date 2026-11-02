@@ -83,6 +83,17 @@ class ProfileHistory < Array(ProfileHistoryItem)
   def self.load() : ProfileHistory
     self.parse(`nix profile history`)
   end
+
+  def max_duration(min : Time::Span?, generations : Int32?, now = Time.local) : Time::Span?
+    pos = generations.nil? ? 0 : generations - 1
+    pos = self.size - 1 if pos >= self.size
+    if pos >= 0
+      entry = self[pos]
+      keep_time = now - entry.date
+      puts "Profile history #{entry.version} from #{entry.date} is age #{keep_time}#{min && keep_time < min ? " < #{min} min" : ""}"
+      min && min > keep_time ? min : keep_time
+    end
+  end
 end
 
 class SafeGC
@@ -92,25 +103,44 @@ class SafeGC
   property dry_run : Bool = false
   getter current_user : System::User { System::User.find_by(id: `id -u`) }
 
-  def run
+  private def run_command(command : String)
+    if @dry_run
+      puts "Dry-run mode; skipping command: #{command}"
+    else
+      puts "+ #{command}"
+      status = Process.run(command,
+        shell: true, input: Process::Redirect::Close, output: Process::Redirect::Inherit, error: Process::Redirect::Inherit)
+      raise CommandError.new if status.exit_code != 0
+    end
+  end
+
+  def run_user
+    history = ProfileHistory.load()
+    keep = history.max_duration(@min_time, @generations)
+    if keep
+      keep_days = keep.days
+      keep_days += 1 if keep_days.days < keep || keep_days < 1
+      run_command("nix profile wipe-history --older-than #{keep_days}d")
+    end
+  end
+
+  def run_root
     entries = Entries.from_json(`nixos-rebuild list-generations --json`)
     keep = entries.max_duration(@min_time, @kernel, @generations)
     if keep
       keep_days = keep.days
-      keep_days += 1 if keep_days.days < keep
-      # nix-collect-garbage only accepts periods of at least one day.
-      keep_days = 1 if keep_days < 1
-      command = "nix-collect-garbage --delete-older-than #{keep_days}d"
-      if @dry_run
-        puts "Dry-run mode; skipping command: #{command}"
-      else
-        puts "+ #{command}"
-        status = Process.run(command,
-          shell: true, input: Process::Redirect::Close, output: Process::Redirect::Inherit, error: Process::Redirect::Inherit)
-        raise CommandError.new if status.exit_code != 0
-      end
+      keep_days += 1 if keep_days.days < keep || keep_days < 1
+      run_command("nix-collect-garbage --delete-older-than #{keep_days}d")
     else
       puts "No entries to purge"
+    end
+  end
+
+  def run
+    if current_user.id == "0"
+      run_root
+    else
+      run_user
     end
   end
 
