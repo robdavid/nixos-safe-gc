@@ -56,15 +56,4 @@
         }
       );
     };
-
-  nixConfig = {
-    extra-substituters = [
-      "https://nix-snarenet-org.s3.eu-west-2.amazonaws.com"
-    ];
-    extra-trusted-public-keys = [
-      "nix-snarenet-org.s3.eu-west-2.amazonaws.com:TV4CA9ubzkdBakMorJdEnGvAitolzK5tMDFQJ3KVq+w="
-    ];
-  };
-
-
 }
