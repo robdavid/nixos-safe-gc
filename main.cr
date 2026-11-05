@@ -2,6 +2,7 @@ require "time"
 require "option_parser"
 require "./src/safegc"
 
+VERSION = {{ run("./version").stringify }}
 
 gc = SafeGC.new
 
@@ -21,7 +22,11 @@ begin
     parser.on("-u USER", "--user USER", "One or more users to run the garbage collection for") { |u| users << u }
     parser.on("-h", "--help", "Show this help") do
       puts parser
-      exit(1)
+      exit(0)
+    end
+    parser.on("-v", "--version", "Show version") do
+      puts VERSION
+      exit(0)
     end
   end
 

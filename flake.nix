@@ -10,7 +10,7 @@
     let
       supportedSystems = [ "x86_64-linux" ];
       forAllSystems = nixpkgs.lib.genAttrs supportedSystems;
-      version = "0.0.1";
+      version = builtins.head (builtins.match ".*\nversion: *([0-9.]+).*" (builtins.readFile ./shard.yml));
     in
     {
       packages = forAllSystems (
