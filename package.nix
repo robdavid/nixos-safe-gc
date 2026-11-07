@@ -1,6 +1,6 @@
 { pkgs
 , src
-, version ? "0.0.1"
+, version ? "0.0.3"
 }:
 
 pkgs.crystal.buildCrystalPackage {
