@@ -28,7 +28,8 @@
 
       nixosModules =
       rec {
-        nixos-safe-gc = {pkgs,...}@args: import ./module.nix self.packages.${pkgs.stdenv.hostPlatform.system}.default args;
+        nixos-safe-gc = {config, lib, pkgs, utils, ...}@args:
+          import ./module.nix self.packages.${pkgs.stdenv.hostPlatform.system}.default args;
         default = nixos-safe-gc;
       };
 
