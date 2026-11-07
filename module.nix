@@ -1,4 +1,4 @@
-{ config
+sgc_pkg: { config
 , lib
 , pkgs
 , utils
@@ -42,8 +42,8 @@ in
 
     package = lib.mkOption {
       type = lib.types.package;
-      default = pkgs.callPackage ./package.nix { src = ./.; };
-      defaultText = lib.literalExpression "pkgs.callPackage ./package.nix { src = ./.; }";
+      default = sgc_pkg;
+      defaultText = "sgc_pkg";
       description = ''
         The nixos-safe-gc package to use. The default builds the tool from
         the sources of this flake using the Nixpkgs of the system
