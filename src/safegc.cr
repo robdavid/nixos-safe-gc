@@ -122,6 +122,7 @@ class SafeGC
       keep_days += 1 if keep_days.days < keep || keep_days < 1
       run_command("nix profile wipe-history --older-than #{keep_days}d")
     end
+    run_command("nix-store --gc")
   end
 
   def run_root
