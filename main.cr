@@ -1,86 +1,49 @@
-require "json"
 require "time"
 require "option_parser"
+require "./src/safegc"
 
-struct Entry
-  include JSON::Serializable
+VERSION = {{ run("./version").stringify }}
 
-  property generation : Int32
-  
-  property date : Time
+gc = SafeGC.new
 
-  @[JSON::Field(key: "nixosVersion")]
-  property nixos_version : String
-
-  @[JSON::Field(key: "kernelVersion")]
-  property kernel_version : String
-
-  @[JSON::Field(key: "configurationRevision")]
-  property configuration_revision : String
-
-  property specialisations : Array(String)
-
-  property current : Bool
-end
-
-class Entries < Array(Entry)
-  def max_duration(min : Time::Span, kernel : String, generations : Int32, now = Time.utc) : Time::Span?
-    kernel_pos = self.index { |e| e.kernel_version == kernel }
-    puts "WARNING: Target kernel #{kernel} not in any generation" if kernel_pos.nil?
-    pos = kernel_pos.nil? || kernel_pos+1 < generations ? generations-1 : kernel_pos
-    if pos < self.size
-      entry = self[pos]
-      keep_time = now - entry.date
-      puts "Generation #{entry.generation} (##{pos+1}) running #{entry.kernel_version == kernel ? "(target) " : ""}kernel #{entry.kernel_version} from #{entry.date} is age #{keep_time}#{keep_time<min ? " < #{min} min" : ""}"
-      keep_time < min ? min : keep_time
-    else
-      nil
-    end
-  end
-end
-
-kernel = ""
-min_time = 1.nanosecond
-generations = 1
-dry_run = false
+users = [] of String
 begin
   OptionParser.parse do |parser|
     parser.banner = "Usage: nixos-safe-gc [options]"
-    parser.on("-k VERSION","--keep-kernel VERSION", 
-      "Keep generation with the given kernel version (defaults to current kernel)") {|k| kernel = k }
-    parser.on("-d DAYS","--days DAYS",
-      "Keep at least the given number of days worth of generations") { |n| min_time = n.to_i.days }
-    parser.on("-g GENERATIONS","--generations GENERATIONS",
-      "Keep at least the given number of generations") {|n| generations = n.to_i }
-    parser.on("-R","--dry-run","Don't perform a GC, but show what would be done") { dry_run = true }
+    parser.on("-k [VERSION]", "--keep-kernel [VERSION]",
+      "Keep generation with the given kernel version (defaults to current kernel)") do |k|
+      gc.kernel = (k == "" ? `uname -r`.strip : k)
+    end
+    parser.on("-d DAYS", "--days DAYS",
+      "Keep at least the given number of days worth of generations") { |n| gc.min_time = n.to_i.days }
+    parser.on("-g GENERATIONS", "--generations GENERATIONS",
+      "Keep at least the given number of generations") { |n| gc.generations = n.to_i }
+    parser.on("-R", "--dry-run", "Don't perform a GC, but show what would be done") { gc.dry_run = true }
+    parser.on("-u USER", "--user USER", "One or more users to run the garbage collection for") { |u| users << u }
     parser.on("-h", "--help", "Show this help") do
       puts parser
-      exit(1)
+      exit(0)
+    end
+    parser.on("-v", "--version", "Show version") do
+      puts VERSION
+      exit(0)
     end
   end
 
-  kernel = `uname -r`.strip if kernel == ""
-  entries = Entries.from_json(`nixos-rebuild list-generations --json`)
+  if users.empty?
+    gc.run
+  else
+    users.each { |user| gc.run_as(user) }
+  end
 rescue e : JSON::ParseException
   STDERR.print("nixos-safe-gc: cannot parse result from nixos-rebuild: #{e}")
   exit(1)
 rescue e : ArgumentError
   STDERR.print("nixos-safe-gc: #{e}")
   exit(1)
-end
-
-
-keep = entries.max_duration(min_time,kernel,generations)
-if keep
-  keep_days = keep.days
-  keep_days += 1 if keep_days.days < keep
-  command = "nix-collect-garbage --delete-older-than #{keep_days}d"
-  if dry_run
-    puts "Dry-run mode; skipping command: #{command}"
-  else
-    puts "+ #{command}"
-    puts `#{command}`
-  end
-else
-  puts "No entries to purge"
+rescue e : CommandError
+  exit(1)
+rescue e : Exception
+  STDERR.print("nixos-safe-gc: #{e}")
+  exit(2)
 end
