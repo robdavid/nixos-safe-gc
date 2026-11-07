@@ -1,8 +1,8 @@
 {
-  description = "Nix garbage collection with more controll";
+  description = "Nix garbage collection with more control";
 
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
   };
 
   outputs =
@@ -26,9 +26,10 @@
         }
       );
 
-      nixosModules = {
-        nixos-safe-gc = ./module.nix;
-        default = ./module.nix;
+      nixosModules =
+      rec {
+        nixos-safe-gc = {pkgs,...}@args: import ./module.nix self.packages.${pkgs.stdenv.hostPlatform.system}.default args;
+        default = nixos-safe-gc;
       };
 
       devShells = forAllSystems (
